@@ -43,7 +43,7 @@ def authenticate_user(username, password):
     return{"message": "contraseña Incorrecta"}
   return user
 
-def create_acces_token (data: dict, expires_delta: Optional[timedelta]= None):
+def create_access_token (data: dict, expires_delta: Optional[timedelta]= None):
   to_encode = data.copy()
   if expires_delta:
     expire = datetime.utcnow() + expires_delta
@@ -52,6 +52,23 @@ def create_acces_token (data: dict, expires_delta: Optional[timedelta]= None):
   to_encode.update({"exp": expire})
   encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
   return encoded_jwt
+
+def get_user(token: str = Depends(oauth2_scheme)):
+  credentials_exception = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
+  )
+  try:
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    username: str = payload.get("sub")
+    if username is None:
+      raise credentials_exception
+    token_data = TokenData(username= username)
+  except JWTError:
+    raise credentials_exception
+  user= users_col.find_one({"username":token_data.username})
+  return User(**user)
 
 def random_string():
   letter = string.ascii_lowercase
@@ -65,34 +82,37 @@ def random_string():
 async def root():
   return{"message": f"API urlshorter by me" }
 
-@app.post("/url/")
-async def add_a_url(link: Link):
-  new_link = links_col.find_one({"url": link.url})
-  if new_link is None:
-    url_shorter = link.url_shorter or random_string()
-    links_col.insert_one({
-      "url": link.url,
-      "url_shorter": url_shorter
-    })
-    return  {"message": f" {link.url} guardado como {url_shorter}"}
-  return {"message": "este link ya está guardado"}
+#MAL IMPLEMENTADO
+@app.post("/url")
+async def add_a_private_url(link: Link, current_user:User =Depends(get_user)):
+  new_link=link
+  user_link_list = current_user.links
+  if new_link.url in user_link_list:
+    return{"message": "ya existe esta url"}
+  new_link.url_shorter = new_link.url_shorter or random_string()
+  user_link_list.append(new_link)
+  users_col.update({"username": current_user.username}, {"links": user_link_list})
+  return {"message": "Guardado"}
+    
 
 @app.get("/urls")
-async def show_all_urls():
-  links = []
-  for link in links_col.find():
-    links.append(Link(**link))
-  if not links:
-    return {"message": "mas solo que la una"}
-  return links
+async def show_your_urls(current_user: User= Depends(get_user)):
+  if not current_user.links:
+    return {"message": "aun no tienes ningun url"}
+  return current_user.links
+
 
 #Usar UserInDB
 @app.post("/user")
 async def add_a_user(user: UserInDB):
+  new_user= users_col.find_one({"username": user.username})
+  if new_user is not None:
+    return {"message":"Este usuario ya existe"}
   users_col.insert_one({
     'username': user.username,
     'password': get_password_hash(user.password),
-    'full_name':  user.full_name
+    'full_name':  user.full_name,
+    'links': user.links
   })
   return {"message": f"Usuario guardado {user.username}"}
 
@@ -125,24 +145,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
       headers={"WWW-Authenticate": "Bearer"}
     )
   access_token_expires= timedelta(minutes= ACCESS_TOKEN_EXPIRE_MINUTES)
-  access_token = create_acces_token(data= {"sub": user.username}, expires_delta= access_token_expires)
+  access_token = create_access_token(data= {"sub": user.username}, expires_delta= access_token_expires)
   return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/secreto")
-async def show_secret_message(token:str = Depends(oauth2_scheme)):
-  credentials_exception = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
-    headers={"WWW-Authenticate": "Bearer"},
-  )
-  try:
-    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    username: str = payload.get("sub")
-    if username is None:
-      raise credentials_exception
-    token_data = TokenData(username= username)
-  except JWTError:
-    raise credentials_exception
-  user= users_col.find_one({"username":token_data.username})
-  return {"message": f"TOMATELA {username}"}
+@app.get("/user", response_model= User)
+async def show_user_data(current_user: User= Depends(get_user)):
+  return current_user
 
+@app.get("/links")
+async def get_user_links(current_user: User=Depends(get_user)):
+  return current_user.links

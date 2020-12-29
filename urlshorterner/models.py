@@ -1,20 +1,16 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional,List
 from urlshorterner.types import PyObjectId
 from bson import ObjectId
 class Link(BaseModel):
-  _id: PyObjectId
   url: str
   url_shorter: Optional[str] = None
-  class Config:
-    arbitrary_types_allow = True
-    json_encoders = {ObjectId: str}
-
 
 class User(BaseModel):
   _id: PyObjectId
   username: str
   full_name: Optional[str] = None
+  links: List[Link] = []
   class Config:
     arbitrary_types_allow = True
     json_encoders = {ObjectId: str}
