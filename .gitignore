@@ -1,2 +1,7 @@
 __pycache__
 env
+redis-stable
+dump.rdb
+redis-stable.tar.gz
+.vscode/
+urlshorterner/settings.py

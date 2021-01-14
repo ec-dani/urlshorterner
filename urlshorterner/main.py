@@ -4,19 +4,17 @@ from starlette.responses import RedirectResponse
 from urlshorterner.models import User,Link,UserInDB, Token, TokenData
 from pymongo import MongoClient
 from bson import json_util
-from passlib.context import CryptContext
+from urlshorterner.utils import get_password_hash,verify_password,create_access_token
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
+import urlshorterner.settings as SETTINGS
 import json
 import redis
 import random
 import string
-
-SECRET_KEY= "cafec8b9b325fa68ad398c5c35c11ec66c43aca33b9fd5e3ddf6321cf6cfc8e3"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+import validators
 
 app = FastAPI()
 #r = redis.Redis()
@@ -25,14 +23,6 @@ db= client['urlshorterner']
 users_col= db['users']
 links_col = db['links']
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def get_password_hash(password):
-  return pwd_context.hash(password)
-
-def verify_password(plain_password, hashed_password):
-  return pwd_context.verify(plain_password, hashed_password)
 
 def authenticate_user(username, password):
   vuser = users_col.find_one({"username": username})
@@ -40,18 +30,9 @@ def authenticate_user(username, password):
   if not user:
     return {"message":"usuario NO encontrado"}
   if not verify_password(password, user.password):
+    print(user)
     return{"message": "contraseña Incorrecta"}
   return user
-
-def create_access_token (data: dict, expires_delta: Optional[timedelta]= None):
-  to_encode = data.copy()
-  if expires_delta:
-    expire = datetime.utcnow() + expires_delta
-  else:
-    expire = datetime.utcnow() + timedelta(minutes=15)
-  to_encode.update({"exp": expire})
-  encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-  return encoded_jwt
 
 def get_user(token: str = Depends(oauth2_scheme)):
   credentials_exception = HTTPException(
@@ -60,7 +41,7 @@ def get_user(token: str = Depends(oauth2_scheme)):
     headers={"WWW-Authenticate": "Bearer"},
   )
   try:
-    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    payload = jwt.decode(token, SETTINGS.SECRET_KEY, algorithms=[SETTINGS.ALGORITHM])
     username: str = payload.get("sub")
     if username is None:
       raise credentials_exception
@@ -69,6 +50,7 @@ def get_user(token: str = Depends(oauth2_scheme)):
     raise credentials_exception
   user= users_col.find_one({"username":token_data.username})
   return User(**user)
+
 
 def random_string():
   letter = string.ascii_lowercase
@@ -82,59 +64,8 @@ def random_string():
 async def root():
   return{"message": f"API urlshorter by me" }
 
-#MAL IMPLEMENTADO
-@app.post("/url")
-async def add_a_private_url(link: Link, current_user:User =Depends(get_user)):
-  new_link=link
-  user_link_list = current_user.links
-  if new_link.url in user_link_list:
-    return{"message": "ya existe esta url"}
-  new_link.url_shorter = new_link.url_shorter or random_string()
-  user_link_list.append(new_link)
-  users_col.update({"username": current_user.username}, {"links": user_link_list})
-  return {"message": "Guardado"}
-    
-
-@app.get("/urls")
-async def show_your_urls(current_user: User= Depends(get_user)):
-  if not current_user.links:
-    return {"message": "aun no tienes ningun url"}
-  return current_user.links
-
-
-#Usar UserInDB
-@app.post("/user")
-async def add_a_user(user: UserInDB):
-  new_user= users_col.find_one({"username": user.username})
-  if new_user is not None:
-    return {"message":"Este usuario ya existe"}
-  users_col.insert_one({
-    'username': user.username,
-    'password': get_password_hash(user.password),
-    'full_name':  user.full_name,
-    'links': user.links
-  })
-  return {"message": f"Usuario guardado {user.username}"}
-
-@app.get("/users")
-async def show_all_users():
-  users = []
-  for user in users_col.find():
-    users.append(User(**user))
-  if not users:
-    return {"message": "mas solo que la una"}
-  return users
- # users = list(users_col.find())
- # return json.loads(json_util.dumps(users))
-
-
-@app.get("/url/{furl_shorter}")
-async def go_to(furl_shorter: str):
-  short = links_col.find_one({"url_shorter": furl_shorter })
-  if short is None:
-    return {"message":"no encontrado"}
-  return RedirectResponse(url=short["url"] )
-
+#cuando se introduce mal la contraseña da error 'dict' object has no attribute 'username'
+#cuando se introduce mal el usuario  user = UserInDB(**vuser) TypeError: ModelMetaclass object argument after ** must be a mapping, not NoneType
 @app.post("/token", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
   user= authenticate_user(form_data.username, form_data.password )
@@ -144,14 +75,90 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
       detail= "Incorrect username or password",
       headers={"WWW-Authenticate": "Bearer"}
     )
-  access_token_expires= timedelta(minutes= ACCESS_TOKEN_EXPIRE_MINUTES)
+  access_token_expires= timedelta(minutes= SETTINGS.ACCESS_TOKEN_EXPIRE_MINUTES)
   access_token = create_access_token(data= {"sub": user.username}, expires_delta= access_token_expires)
   return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/user", response_model= User)
+@app.post("/user")
+async def add_a_user(user: UserInDB):
+  new_user= users_col.find_one({"username": user.username})
+  if new_user is not None:
+    return {"message":"Este usuario ya existe"}
+  user.hash_password()
+  users_col.insert_one(
+    user.dict()
+  )
+  return {"message": f"Usuario guardado {user.username}"}
+
+
+@app.get("/user/me", response_model= User)
 async def show_user_data(current_user: User= Depends(get_user)):
   return current_user
 
-@app.get("/links")
-async def get_user_links(current_user: User=Depends(get_user)):
+@app.get("/user")
+async def show_all_users():
+  users = []
+  for user in users_col.find():
+    users.append(User(**user))
+  if not users:
+    return {"message": "mas solo que la una"}
+  return users
+
+@app.post("/user/url")
+async def add_a_private_url(link: Link, current_user:User =Depends(get_user)):
+  if not validators.url(link.url):
+    return{"message":"MALA URL"}
+  if link.url in [dlink.url for dlink in current_user.links]:
+    return{"message": "ya existe esta url"}
+  link.url_shorter = link.url_shorter or random_string()
+  current_user.links.append(link)
+  new_links =[link.dict() for link in current_user.links]
+  users_col.update_one({"username": current_user.username},{"$set":{"links": new_links}} )
+  return {"message": "Guardado"}
+
+@app.get("/user/url")
+async def show_your_urls(current_user: User= Depends(get_user)):
+  if not current_user.links:
+    return {"message": "aun no tienes ningun url"}
   return current_user.links
+
+@app.get("/users/url/{furl_shorter}")
+async def go_to_private(furl_shorter:str, current_user:User = Depends(get_user)):
+  for link in current_user.links:
+    if link.url_shorter == furl_shorter:
+      short_url=link.url
+  if short_url is None:
+    return{"message": "ERROR NO ECNOTRADO"}
+  return RedirectResponse(url=short_url)
+
+@app.post("/link")
+async def add_public_link(link: Link):
+  link.url_shorter = link.url_shorter or random_string()
+  new_url = links_col.find_one({"url": link.url}) 
+  if validators.url(link.url):
+    if new_url is None:
+      links_col.insert_one({
+        "url": link.url,
+        "url_shorter": link.url_shorter
+      })
+    else:
+      return{"message":f"ya está guardado: {new_url['url_shorter']}"}
+    return{"message":"guardado"}
+  else:
+    return {"message": "MALA URL"}
+
+@app.get("/links")
+async def show_public_links():
+  links= []
+  for link in links_col.find():
+    links.append(Link(**link))
+  if not links:
+    return{"message":"no hay links"}
+  return links
+
+@app.get("/url/{furl_shorter}")
+async def go_to(furl_shorter: str):
+  short = links_col.find_one({"url_shorter": furl_shorter })
+  if short is None:
+    return {"message":"no encontrado"}
+  return RedirectResponse(url=short["url"] )
