@@ -26,12 +26,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def authenticate_user(username, password):
   vuser = users_col.find_one({"username": username})
+  if not vuser:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="usuario incorrecto")
   user = UserInDB(**vuser)
-  if not user:
-    return {"message":"usuario NO encontrado"}
   if not verify_password(password, user.password):
-    print(user)
-    return{"message": "contraseña Incorrecta"}
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Contraseña incorrecta")
   return user
 
 def get_user(token: str = Depends(oauth2_scheme)):
@@ -51,7 +50,6 @@ def get_user(token: str = Depends(oauth2_scheme)):
   user= users_col.find_one({"username":token_data.username})
   return User(**user)
 
-
 def random_string():
   letter = string.ascii_lowercase
   resul="ec_"
@@ -59,13 +57,10 @@ def random_string():
 	  resul += random.choice(letter)
   return resul
 
-
 @app.get("/")
 async def root():
   return{"message": f"API urlshorter by me" }
 
-#cuando se introduce mal la contraseña da error 'dict' object has no attribute 'username'
-#cuando se introduce mal el usuario  user = UserInDB(**vuser) TypeError: ModelMetaclass object argument after ** must be a mapping, not NoneType
 @app.post("/token", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
   user= authenticate_user(form_data.username, form_data.password )
@@ -83,7 +78,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 async def add_a_user(user: UserInDB):
   new_user= users_col.find_one({"username": user.username})
   if new_user is not None:
-    return {"message":"Este usuario ya existe"}
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este usuario ya existe")
   user.hash_password()
   users_col.insert_one(
     user.dict()
@@ -104,48 +99,47 @@ async def show_all_users():
     return {"message": "mas solo que la una"}
   return users
 
-@app.post("/user/url")
+@app.post("/user/url", response_model= Link)
 async def add_a_private_url(link: Link, current_user:User =Depends(get_user)):
   if not validators.url(link.url):
-    return{"message":"MALA URL"}
+    raise HTTPException(status_code= status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Formato incorrecto")
   if link.url in [dlink.url for dlink in current_user.links]:
-    return{"message": "ya existe esta url"}
+    raise HTTPException(status_code= status.HTTP_409_CONFLICT, detail="URL ya existe")
   link.url_shorter = link.url_shorter or random_string()
   current_user.links.append(link)
   new_links =[link.dict() for link in current_user.links]
   users_col.update_one({"username": current_user.username},{"$set":{"links": new_links}} )
-  return {"message": "Guardado"}
+  return link
 
 @app.get("/user/url")
 async def show_your_urls(current_user: User= Depends(get_user)):
   if not current_user.links:
-    return {"message": "aun no tienes ningun url"}
+    return {"message": "aun no tienes ninguna url"}
   return current_user.links
 
 @app.get("/users/url/{furl_shorter}")
 async def go_to_private(furl_shorter:str, current_user:User = Depends(get_user)):
+  short_url = None
   for link in current_user.links:
     if link.url_shorter == furl_shorter:
       short_url=link.url
   if short_url is None:
-    return{"message": "ERROR NO ECNOTRADO"}
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
   return RedirectResponse(url=short_url)
 
 @app.post("/link")
 async def add_public_link(link: Link):
+  if not validators.url(link.url):
+    raise HTTPException(status_code= status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Formato incorrecto")
+  new_url= links_col.find_one({"url":link.url})
+  if new_url is not None:
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="URL ya guardada")
   link.url_shorter = link.url_shorter or random_string()
-  new_url = links_col.find_one({"url": link.url}) 
-  if validators.url(link.url):
-    if new_url is None:
-      links_col.insert_one({
-        "url": link.url,
-        "url_shorter": link.url_shorter
-      })
-    else:
-      return{"message":f"ya está guardado: {new_url['url_shorter']}"}
-    return{"message":"guardado"}
-  else:
-    return {"message": "MALA URL"}
+  links_col.insert_one({
+    "url": link.url,
+    "url_shorter": link.url_shorter
+  })
+  return link
 
 @app.get("/links")
 async def show_public_links():
@@ -160,5 +154,5 @@ async def show_public_links():
 async def go_to(furl_shorter: str):
   short = links_col.find_one({"url_shorter": furl_shorter })
   if short is None:
-    return {"message":"no encontrado"}
+    raise HTTPException(status_code= status.HTTP_404_NOT_FOUND)
   return RedirectResponse(url=short["url"] )
