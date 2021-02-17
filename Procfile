@@ -1,1 +1,1 @@
-web: gunicorn -w 4 -k uvicorn.workers.UvicornWorker urlshorterner.main:app
+web: gunicorn urlshorterner.main:app
