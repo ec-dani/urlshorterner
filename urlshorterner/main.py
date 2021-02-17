@@ -10,15 +10,12 @@ from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
 import urlshorterner.settings as SETTINGS
-import json
-import redis
 import random
 import string
 import validators
 
 app = FastAPI()
-#r = redis.Redis()
-client = MongoClient('mongodb://localhost:27017/')
+client = MongoClient(f'mongodb+srv://Daniel:{SETTINGS.DB_PASSWORD}@cluster0.pojk8.mongodb.net/urlshorter?retryWrites=true&w=majority')
 db= client['urlshorterner']
 users_col= db['users']
 links_col = db['links']
