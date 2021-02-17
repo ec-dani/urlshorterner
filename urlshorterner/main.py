@@ -15,7 +15,7 @@ import string
 import validators
 
 app = FastAPI()
-client = MongoClient(f'mongodb+srv://Daniel:{SETTINGS.DB_PASSWORD}@cluster0.pojk8.mongodb.net/urlshorter?retryWrites=true&w=majority')
+client = MongoClient(SETTINGS.MONGO_URI)
 db= client['urlshorterner']
 users_col= db['users']
 links_col = db['links']
