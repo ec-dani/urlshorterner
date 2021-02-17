@@ -10,6 +10,7 @@ ecdsa==0.14.1
 fastapi==0.61.2
 gunicorn==20.0.4
 h11==0.11.0
+httptools==0.1.1
 ipdb==0.13.4
 ipython==7.16.0
 ipython-genutils==0.2.0
@@ -44,6 +45,7 @@ traitlets==4.3.3
 typed-ast==1.4.1
 typing-extensions==3.7.4.3
 uvicorn==0.12.2
+uvloop==0.15.1
 validators==0.18.2
 wcwidth==0.2.5
 wrapt==1.12.1
