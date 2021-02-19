@@ -1,1 +1,1 @@
-web: gunicorn urlshorterner.main:app
+web: uvicorn urlshorterner.main:app --host=0.0.0.0 --port=${PORT:-5000}
