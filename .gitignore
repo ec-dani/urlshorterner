@@ -5,3 +5,4 @@ dump.rdb
 redis-stable.tar.gz
 .vscode/
 urlshorterner/settings.py
+.env

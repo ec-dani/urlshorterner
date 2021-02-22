@@ -1,1 +1,1 @@
-web: uvicorn urlshorterner.main:app --host=0.0.0.0
+web: gunicorn urlshorterner.main:app -w 4 -k uvicorn.workers.UvicornWorker
