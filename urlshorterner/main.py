@@ -9,13 +9,14 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
-#import urlshorterner.settings as SETTINGS
+from urlshorterner.config import MONGO_URI, ALGORITHM,ACCESS_TOKEN_EXPIRE_MINUTES,SECRET_KEY
 import random
 import string
 import validators
 
+
 app = FastAPI()
-client = MongoClient(SETTINGS.MONGO_URI)
+client = MongoClient(MONGO_URI)
 db= client['urlshorterner']
 users_col= db['users']
 links_col = db['links']
@@ -37,7 +38,7 @@ def get_user(token: str = Depends(oauth2_scheme)):
     headers={"WWW-Authenticate": "Bearer"},
   )
   try:
-    payload = jwt.decode(token, SETTINGS.SECRET_KEY, algorithms=[SETTINGS.ALGORITHM])
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     username: str = payload.get("sub")
     if username is None:
       raise credentials_exception
@@ -67,7 +68,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
       detail= "Incorrect username or password",
       headers={"WWW-Authenticate": "Bearer"}
     )
-  access_token_expires= timedelta(minutes= SETTINGS.ACCESS_TOKEN_EXPIRE_MINUTES)
+  access_token_expires= timedelta(minutes= ACCESS_TOKEN_EXPIRE_MINUTES)
   access_token = create_access_token(data= {"sub": user.username}, expires_delta= access_token_expires)
   return {"access_token": access_token, "token_type": "bearer"}
 
