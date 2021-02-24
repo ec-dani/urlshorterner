@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
-import urlshorterner.settings as SETTINGS
+#import urlshorterner.settings as SETTINGS
 import random
 import string
 import validators
