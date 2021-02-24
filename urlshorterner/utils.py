@@ -2,7 +2,7 @@ from passlib.context import CryptContext
 from jose import jwt
 from datetime import datetime, timedelta
 from typing import Optional
-import urlshorterner.settings as SETTINGS
+#import urlshorterner.settings as SETTINGS
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
